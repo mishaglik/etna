@@ -19,7 +19,7 @@ set_property(TARGET VulkanMemoryAllocator PROPERTY SYSTEM TRUE)
 CPMAddPackage(
   NAME SpirvReflect
   GITHUB_REPOSITORY KhronosGroup/SPIRV-Reflect
-  GIT_TAG "vulkan-sdk-${Vulkan_VERSION}"
+  GIT_TAG "vulkan-sdk-1.3.290.0"
   OPTIONS
     "SPIRV_REFLECT_EXECUTABLE OFF"
     "SPIRV_REFLECT_STRIPPER OFF"

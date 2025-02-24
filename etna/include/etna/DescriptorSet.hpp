@@ -22,19 +22,29 @@ struct Binding
   Binding(uint32_t rbinding, const ImageBinding& image_info, uint32_t array_index = 0)
     : binding{rbinding}
     , arrayElem{array_index}
-    , resources{image_info}
+    , size(1)
+    , resources{std::vector<ImageBinding>{image_info}}
+  {
+  }
+  Binding(uint32_t rbinding, std::vector<ImageBinding> image_infos, uint32_t array_index = 0)
+    : binding{rbinding}
+    , arrayElem{array_index}
+    , size(image_infos.size())
+    , resources{std::move(image_infos)}
   {
   }
   Binding(uint32_t rbinding, const BufferBinding& buffer_info, uint32_t array_index = 0)
     : binding{rbinding}
     , arrayElem{array_index}
-    , resources{buffer_info}
+    , size(1)
+    , resources{std::vector<BufferBinding>{buffer_info}}
   {
   }
 
   uint32_t binding;
   uint32_t arrayElem;
-  std::variant<ImageBinding, BufferBinding> resources;
+  uint32_t size;
+  std::variant<std::vector<ImageBinding>, std::vector<BufferBinding>> resources;
 };
 
 /*Maybe we need a hierarchy of descriptor sets*/
