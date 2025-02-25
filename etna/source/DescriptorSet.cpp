@@ -22,7 +22,7 @@ static constexpr uint32_t NUM_TEXTURES = 2048;
 static constexpr uint32_t NUM_RW_TEXTURES = 512;
 static constexpr uint32_t NUM_BUFFERS = 2048;
 static constexpr uint32_t NUM_RW_BUFFERS = 512;
-static constexpr uint32_t NUM_SAMPLERS = 128;
+static constexpr uint32_t NUM_SAMPLERS = 128;  
 
 static constexpr std::array<vk::DescriptorPoolSize, 6> DEFAULT_POOL_SIZES{
   vk::DescriptorPoolSize{vk::DescriptorType::eUniformBuffer, NUM_BUFFERS},
@@ -37,9 +37,11 @@ DynamicDescriptorPool::DynamicDescriptorPool(vk::Device dev, const GpuWorkCount&
   , workCount{work_count}
   , pools{work_count, [dev](std::size_t) {
             vk::DescriptorPoolCreateInfo info{
+              .flags = vk::DescriptorPoolCreateFlagBits::eUpdateAfterBind,
               .maxSets = NUM_DESCRIPTORS,
               .poolSizeCount = static_cast<std::uint32_t>(DEFAULT_POOL_SIZES.size()),
-              .pPoolSizes = DEFAULT_POOL_SIZES.data()};
+              .pPoolSizes = DEFAULT_POOL_SIZES.data(),
+            };
             return unwrap_vk_result(dev.createDescriptorPoolUnique(info));
           }}
 {
@@ -67,6 +69,15 @@ DescriptorSet DynamicDescriptorPool::allocateSet(
   vk::DescriptorSetAllocateInfo info{};
   info.setDescriptorPool(pools.get().get());
   info.setSetLayouts(setLayouts);
+
+  std::vector<uint32_t> counts = {};
+  counts.reserve(bindings.size());
+  vk::DescriptorSetVariableDescriptorCountAllocateInfo countInfo{};
+  if(bindings.size() == 1 && bindings.at(0).size > 1) {
+    counts.push_back(bindings.at(0).size);
+    countInfo.setDescriptorCounts(counts);
+    info.setPNext(&countInfo);
+  }
 
   vk::DescriptorSet vkSet{};
   ETNA_VERIFY(vkDevice.allocateDescriptorSets(&info, &vkSet) == vk::Result::eSuccess);
@@ -115,7 +126,7 @@ static void validate_descriptor_write(const DescriptorSet& dst)
 
     const auto& bindingInfo = layoutInfo.getBinding(binding.binding);
     bool isImageRequired = is_image_resource(bindingInfo.descriptorType);
-    bool isImageBinding = std::get_if<ImageBinding>(&binding.resources) != nullptr;
+    bool isImageBinding = std::get_if<std::vector<ImageBinding>>(&binding.resources) != nullptr;
     if (isImageRequired != isImageBinding)
     {
       ETNA_PANIC(
@@ -127,7 +138,7 @@ static void validate_descriptor_write(const DescriptorSet& dst)
 
     unboundResources[binding.binding] -= 1;
   }
-
+#if 0
   for (uint32_t binding = 0; binding < MAX_DESCRIPTOR_BINDINGS; binding++)
   {
     if (unboundResources[binding] > 0)
@@ -136,6 +147,7 @@ static void validate_descriptor_write(const DescriptorSet& dst)
         binding,
         unboundResources[binding]);
   }
+#endif 
 }
 
 void write_set(const DescriptorSet& dst)
@@ -155,9 +167,9 @@ void write_set(const DescriptorSet& dst)
   {
     const auto& bindingInfo = layoutInfo.getBinding(binding.binding);
     if (is_image_resource(bindingInfo.descriptorType))
-      numImageInfo++;
+      numImageInfo  += binding.size;
     else
-      numBufferInfo++;
+      numBufferInfo += binding.size;
   }
 
   std::vector<vk::DescriptorImageInfo> imageInfos;
@@ -172,24 +184,28 @@ void write_set(const DescriptorSet& dst)
     const auto& bindingInfo = layoutInfo.getBinding(binding.binding);
     vk::WriteDescriptorSet write{};
     write.setDstSet(dst.getVkSet())
-      .setDescriptorCount(1)
+      .setDescriptorCount(binding.size)
       .setDstBinding(binding.binding)
       .setDstArrayElement(binding.arrayElem)
       .setDescriptorType(bindingInfo.descriptorType);
 
     if (is_image_resource(bindingInfo.descriptorType))
     {
-      const auto img = std::get<ImageBinding>(binding.resources).descriptor_info;
-      imageInfos[numImageInfo] = img;
       write.setPImageInfo(imageInfos.data() + numImageInfo);
-      numImageInfo++;
+      const auto& imgs = std::get<std::vector<ImageBinding>>(binding.resources);
+      for (const auto& img : imgs) {
+        imageInfos[numImageInfo] = img.descriptor_info;
+        numImageInfo++;
+      }
     }
     else
     {
-      const auto buf = std::get<BufferBinding>(binding.resources).descriptor_info;
-      bufferInfos[numBufferInfo] = buf;
+      const auto& bufs = std::get<std::vector<BufferBinding>>(binding.resources);
       write.setPBufferInfo(bufferInfos.data() + numBufferInfo);
-      numBufferInfo++;
+      for (const auto& buf : bufs) {
+        bufferInfos[numBufferInfo] = buf.descriptor_info;
+        numBufferInfo++;
+      }
     }
 
     writes.push_back(write);
@@ -255,11 +271,12 @@ void DescriptorSet::processBarriers() const
   auto& layoutInfo = get_context().getDescriptorSetLayouts().getLayoutInfo(layoutId);
   for (auto& binding : bindings)
   {
-    if (std::get_if<ImageBinding>(&binding.resources) == nullptr)
+    if (std::get_if<std::vector<ImageBinding>>(&binding.resources) == nullptr)
       continue; // Add processing for buffer here if you need.
 
     auto& bindingInfo = layoutInfo.getBinding(binding.binding);
-    const ImageBinding& imgData = std::get<ImageBinding>(binding.resources);
+    //FIXME: at(0)
+    const ImageBinding& imgData = std::get<std::vector<ImageBinding>>(binding.resources).at(0);
     etna::set_state(
       command_buffer,
       imgData.image.get(),

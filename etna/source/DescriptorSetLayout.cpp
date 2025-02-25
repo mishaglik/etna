@@ -106,15 +106,24 @@ bool DescriptorSetInfo::operator==(const DescriptorSetInfo& rhs) const
 vk::DescriptorSetLayout DescriptorSetInfo::createVkLayout(vk::Device device) const
 {
   std::vector<vk::DescriptorSetLayoutBinding> apiBindings;
+  std::vector<vk::DescriptorBindingFlags> bindingFlags;
   for (uint32_t i = 0; i < maxUsedBinding; i++)
   {
     if (!usedBindings.test(i))
       continue;
     apiBindings.push_back(bindings[i]);
+    if(bindings[i].descriptorCount == 0) 
+      apiBindings.back().descriptorCount = 255;
+    bindingFlags.push_back(bindings[i].descriptorCount != 0 ? vk::DescriptorBindingFlags{} : vk::DescriptorBindingFlagBits::eVariableDescriptorCount);
   }
+
+  vk::DescriptorSetLayoutBindingFlagsCreateInfoEXT bindingFlagsInfo{};
+  bindingFlagsInfo.setBindingFlags(bindingFlags);
 
   vk::DescriptorSetLayoutCreateInfo info{};
   info.setBindings(apiBindings);
+  info.setFlags(vk::DescriptorSetLayoutCreateFlagBits::eUpdateAfterBindPool);
+  info.setPNext(&bindingFlagsInfo);
 
   return unwrap_vk_result(device.createDescriptorSetLayout(info));
 }
